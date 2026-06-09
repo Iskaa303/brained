@@ -17,16 +17,11 @@ lint:
 build mode="debug":
     cargo build {{ if mode == "release" { "--release" } else { "" } }}
 
-# Run the project (with args if needed)
-run mode="debug" *args:
-    cargo run {{ if mode == "release" { "--release" } else { "" } }} -- {{ args }}
+# Run the project example
+example mode="debug" example="basic_simulation" *args:
+    cargo run --example {{ example }} {{ if mode == "release" { "--release" } else { "" } }} -- {{ args }}
 
-# Build and run the project
-build-run mode="debug" *args:
-    cargo build {{ if mode == "release" { "--release" } else { "" } }}
-    cargo run {{ if mode == "release" { "--release" } else { "" } }} -- {{ args }}
-
-# Run tests
+# Build and run tests
 test:
     cargo test
 
@@ -36,3 +31,7 @@ clean:
 
 # Run format, lint, and tests
 check: fmt lint test
+
+# Generate documentation and open it in the browser immediately
+doc:
+    cargo doc --no-deps --open
