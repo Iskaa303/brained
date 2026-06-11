@@ -1,6 +1,6 @@
 //! Somatic integration cell body utilizing Hodgkin-Huxley equations for action potential generation.
 
-use crate::neuron::types::IonConcentrations;
+use crate::types::IonConcentrations;
 
 /// Gating particles for the Hodgkin-Huxley ion channel formulations.
 #[derive(Debug, Clone, Copy)]
@@ -23,10 +23,8 @@ pub struct Soma {
     /// Membrane capacitance (`C_m`) in microfarads per square centimeter (uF/cm^2).
     pub capacitance: f64,
     /// Intracellular chemical ion concentration pool.
-    #[allow(dead_code)]
     pub internal_ions: IonConcentrations,
     /// Extracellular fluid chemical ion concentration pool.
-    #[allow(dead_code)]
     pub external_ions: IonConcentrations,
     /// Current Hodgkin-Huxley channel gate states.
     pub gating: HodgkinHuxleyGating,

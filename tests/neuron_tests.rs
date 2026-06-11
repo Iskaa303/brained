@@ -1,5 +1,5 @@
 //! Tests for the brained library.
-use brained::neuron::{Neuron, Neurotransmitter, dendrite::Dendrite, synapse::Synapse};
+use brained::prelude::*;
 
 #[test]
 fn test_neuron_creation_and_tick() {

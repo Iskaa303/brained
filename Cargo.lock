@@ -4,4 +4,18 @@ version = 4
 
 [[package]]
 name = "brained"
-version = "0.1.0"
+version = "0.0.1"
+dependencies = [
+ "brained_internal",
+]
+
+[[package]]
+name = "brained_internal"
+version = "0.0.1"
+dependencies = [
+ "brained_neuron",
+]
+
+[[package]]
+name = "brained_neuron"
+version = "0.0.1"

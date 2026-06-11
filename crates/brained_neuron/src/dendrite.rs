@@ -1,6 +1,6 @@
 //! Dendritic branches using Cable Theory.
 
-use crate::neuron::{synapse::Synapse, types::Neurotransmitter};
+use crate::{synapse::Synapse, types::Neurotransmitter};
 
 /// Represents a dendritic cable segment with active synaptic connection inputs.
 #[derive(Debug, Clone)]
@@ -12,7 +12,6 @@ pub struct Dendrite {
     /// Axial resistance of the dendritic segment in Ohm * cm.
     pub axial_resistance: f64,
     /// Membrane capacitance of the dendritic segment in F / cm^2.
-    #[allow(dead_code)]
     pub membrane_capacitance: f64,
     /// List of synapses located on this dendritic segment.
     pub synapses: Vec<Synapse>,

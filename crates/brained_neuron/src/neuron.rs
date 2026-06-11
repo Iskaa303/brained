@@ -1,22 +1,9 @@
-//! Structural root module linking all sub-compartments of the individual neuron together.
-#![warn(missing_docs)]
-
-pub mod axon;
-pub mod dendrite;
-pub mod soma;
-pub mod synapse;
-pub mod types;
-
-use axon::Axon;
-use dendrite::Dendrite;
-use soma::Soma;
-pub use types::Neurotransmitter;
+use crate::{axon::Axon, dendrite::Dendrite, soma::Soma, types::Neurotransmitter};
 
 /// Core composition struct managing a high-fidelity biological simulated neuron.
 #[derive(Debug, Clone)]
 pub struct Neuron {
     /// Unique identifier for structural network topology routing.
-    #[allow(dead_code)]
     pub id: u64,
     /// Central cellular computational soma engine.
     pub soma: Soma,

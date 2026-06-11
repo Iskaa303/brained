@@ -1,6 +1,6 @@
 //! Chemical synapse simulation.
 
-use crate::neuron::types::Neurotransmitter;
+use crate::types::Neurotransmitter;
 
 /// Represents a chemical synapse connecting neurons.
 #[derive(Debug, Clone)]
@@ -12,7 +12,6 @@ pub struct Synapse {
     /// Synaptic weight, representing connection efficacy (modeled by plasticity rules).
     pub efficacy: f64,
     /// Width of the synaptic cleft (nanometers).
-    #[allow(dead_code)]
     pub cleft_width: f64,
     /// Fraction of open ion channels (0.0 to 1.0).
     pub open_fraction: f64,

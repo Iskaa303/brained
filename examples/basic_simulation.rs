@@ -1,5 +1,5 @@
 //! Basic simulation example for the brained library.
-use brained::neuron::{Neuron, Neurotransmitter, dendrite::Dendrite, synapse::Synapse};
+use brained::prelude::*;
 
 fn main() {
     // 1. Instantiate the cell

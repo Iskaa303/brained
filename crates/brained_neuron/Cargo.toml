@@ -1,0 +1,12 @@
+[package]
+name = "brained_neuron"
+version = "0.0.1"
+edition = "2024"
+description = "A crate for Brained's neuron system."
+repository = "https://github.com/Iskaa303/brained"
+license = "AGPL-3.0-only"
+
+[lints]
+workspace = true
+
+[dependencies]

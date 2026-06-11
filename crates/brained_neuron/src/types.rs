@@ -2,7 +2,6 @@
 
 /// Supported Neurotransmitters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum Neurotransmitter {
     /// Excitatory Neurotransmitter.
     Glutamate,
@@ -17,7 +16,6 @@ pub enum Neurotransmitter {
 /// Ion concentrations.
 /// Values are in millimoles per liter (mM).
 #[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
 pub struct IonConcentrations {
     /// Sodium ion concentration.
     pub sodium: f64,
