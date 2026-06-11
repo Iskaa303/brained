@@ -1,5 +1,5 @@
-//! Basic simulation example for the cerebrum library.
-use cerebrum::neuron::{Neuron, Neurotransmitter, dendrite::Dendrite, synapse::Synapse};
+//! Basic simulation example for the brained library.
+use brained::neuron::{Neuron, Neurotransmitter, dendrite::Dendrite, synapse::Synapse};
 
 fn main() {
     // 1. Instantiate the cell

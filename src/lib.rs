@@ -1,3 +1,3 @@
-//! Cerebrum is a biophysically accurate biological neuron simulation library.
+//! Brained is a biophysically accurate biological neuron simulation library.
 
 pub mod neuron;

@@ -1,5 +1,5 @@
-//! Tests for the cerebrum library.
-use cerebrum::neuron::{Neuron, Neurotransmitter, dendrite::Dendrite, synapse::Synapse};
+//! Tests for the brained library.
+use brained::neuron::{Neuron, Neurotransmitter, dendrite::Dendrite, synapse::Synapse};
 
 #[test]
 fn test_neuron_creation_and_tick() {
