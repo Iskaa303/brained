@@ -6,6 +6,14 @@ version = 4
 name = "brained"
 version = "0.0.1"
 dependencies = [
+ "brained_dylib",
+ "brained_internal",
+]
+
+[[package]]
+name = "brained_dylib"
+version = "0.0.1"
+dependencies = [
  "brained_internal",
 ]
 

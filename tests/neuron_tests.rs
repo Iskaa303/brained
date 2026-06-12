@@ -1,4 +1,4 @@
-//! Tests for the brained library.
+//! Tests for the individual neuron.
 use brained::prelude::*;
 
 #[test]

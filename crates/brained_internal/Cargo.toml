@@ -2,12 +2,26 @@
 name = "brained_internal"
 version = "0.0.1"
 edition = "2024"
-description = "An internal Brained crate."
+description = "An internal Brained crate used to facilitate optional dynamic linking via the 'dynamic_linking' feature"
 repository = "https://github.com/Iskaa303/brained"
 license = "AGPL-3.0-only"
+
+[features]
+default = []
+
+# Used to disable code that is unsupported when Brained is dynamically linked
+dynamic_linking = []
+
+[dependencies]
+brained_neuron = { path = "../brained_neuron", version = "0.0.1", default-features = false }
 
 [lints]
 workspace = true
 
-[dependencies]
-brained_neuron = { path = "../brained_neuron", version = "0.0.1", default-features = false }
+[package.metadata.docs.rs]
+rustdoc-args = [
+  "-Zunstable-options",
+  "--generate-link-to-definition",
+  "--generate-macro-expansion",
+]
+all-features = true

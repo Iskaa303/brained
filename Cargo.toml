@@ -43,8 +43,16 @@ unused_qualifications = "warn"
 [lints]
 workspace = true
 
+[features]
+# Force dynamic linking, which improves iterative compile times
+dynamic_linking = ["dep:brained_dylib"]
+
 [dependencies]
 brained_internal = { path = "crates/brained_internal", version = "0.0.1", default-features = false }
+
+# Wasm does not support dynamic linking.
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+brained_dylib = { path = "crates/brained_dylib", version = "0.0.1", default-features = false, optional = true }
 
 [package.metadata.docs.rs]
 all-features = true
