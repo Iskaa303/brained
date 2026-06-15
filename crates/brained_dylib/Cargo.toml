@@ -10,7 +10,7 @@ license = "AGPL-3.0-only"
 crate-type = ["dylib"]
 
 [dependencies]
-brained_internal = { path = "../brained_internal", version = "0.0.1", default-features = false }
+brained_internal = { workspace = true }
 
 [lints]
 workspace = true

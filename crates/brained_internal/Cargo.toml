@@ -12,8 +12,10 @@ default = []
 # Used to disable code that is unsupported when Brained is dynamically linked
 dynamic_linking = []
 
+wgpu = ["brained_neuron/wgpu"]
+
 [dependencies]
-brained_neuron = { path = "../brained_neuron", version = "0.0.1", default-features = false }
+brained_neuron = { workspace = true }
 
 [lints]
 workspace = true

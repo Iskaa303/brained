@@ -44,16 +44,39 @@ unused_qualifications = "warn"
 workspace = true
 
 [features]
-# Force dynamic linking, which improves iterative compile times
+default = []
+
 dynamic_linking = ["dep:brained_dylib"]
+wgpu = ["brained_internal/wgpu", "dep:wgpu"]
+
+[workspace.dependencies]
+# Brained crates
+brained_internal = { path = "crates/brained_internal", version = "0.0.1", default-features = false }
+brained_dylib = { path = "crates/brained_dylib", version = "0.0.1", default-features = false }
+brained_backend = { path = "crates/brained_backend", version = "0.0.1" }
+brained_neuron = { path = "crates/brained_neuron", version = "0.0.1", default-features = false }
+
+# External dependencies
+wgpu = "29.0.3"
+pollster = "0.4.0"
+bytemuck = "1.25.0"
+rayon = "1.12.0"
 
 [dependencies]
-brained_internal = { path = "crates/brained_internal", version = "0.0.1", default-features = false }
+brained_internal = { workspace = true }
+wgpu = { workspace = true, optional = true }
+
+[dev-dependencies]
+pollster = { workspace = true }
 
 # Wasm does not support dynamic linking.
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-brained_dylib = { path = "crates/brained_dylib", version = "0.0.1", default-features = false, optional = true }
+brained_dylib = { workspace = true, optional = true }
 
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["-Zunstable-options", "--cfg", "docsrs"]
+
+[[example]]
+name = "wgpu_simulation"
+required-features = ["wgpu"]

@@ -7,6 +7,15 @@ repository = "https://github.com/Iskaa303/brained"
 license = "AGPL-3.0-only"
 
 [dependencies]
+brained_backend = { workspace = true }
+bytemuck = { workspace = true, features = ["derive"], optional = true }
+wgpu = { workspace = true, optional = true }
+pollster = { workspace = true, optional = true }
+rayon = { workspace = true }
+
+[features]
+default = []
+wgpu = ["brained_backend/wgpu", "dep:wgpu", "dep:bytemuck"]
 
 [lints]
 workspace = true

@@ -3,7 +3,7 @@ use brained::prelude::*;
 
 fn main() {
     // 1. Instantiate the cell
-    let mut brain_cell = Neuron::new(1, 2000.0, 5000.0, 1.0, true);
+    let mut brain_cell = Neuron::<CpuBackend>::new(&CpuDevice, 1, 2000.0, 5000.0, 1.0, true);
 
     // 2. Add a dendritic branch with a highly sensitive receptor (efficiency boosted to 15.0)
     let mut branch = Dendrite::new(150.0, 2.0);
@@ -17,7 +17,7 @@ fn main() {
     let active_signals = [Neurotransmitter::Glutamate];
 
     println!("Running neuron simulation loop...");
-    println!("Initial Membrane Potential: {:.2} mV", brain_cell.soma.v_membrane);
+    println!("Initial Membrane Potential: {:.2} mV", brain_cell.state.soma.v_membrane);
     println!("--------------------------------------------------");
 
     // Run for 5000 steps (100 ms of biological time)
@@ -32,10 +32,10 @@ fn main() {
             println!(
                 "[{:.1} ms] Membrane Voltage: {:.2} mV | Gate states: m={:.2}, h={:.2}, n={:.2}",
                 time_ms,
-                brain_cell.soma.v_membrane,
-                brain_cell.soma.gating.m,
-                brain_cell.soma.gating.h,
-                brain_cell.soma.gating.n
+                brain_cell.state.soma.v_membrane,
+                brain_cell.state.soma.gating.m,
+                brain_cell.state.soma.gating.h,
+                brain_cell.state.soma.gating.n
             );
         }
 
