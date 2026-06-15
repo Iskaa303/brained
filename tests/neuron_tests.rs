@@ -1,9 +1,8 @@
 //! Tests for the individual neuron.
 use brained::prelude::*;
 
-#[cfg(not(feature = "wgpu"))]
 #[test]
-fn test_neuron_creation_and_tick() {
+fn test_cpu_neuron_creation_and_tick() {
     let mut brain_cell = Neuron::<CpuBackend>::new(&CpuDevice, 1, 2000.0, 5000.0, 1.0, true);
 
     // Initial state check

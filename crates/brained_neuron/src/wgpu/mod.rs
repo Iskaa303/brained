@@ -18,8 +18,8 @@ pub struct GpuNeuronData {
     pub n: f32,
     pub total_dendritic_current: f32,
     pub is_spiking: u32,
-    pub padding1: u32,
-    pub padding2: u32,
+    pub dendrite_start: u32,
+    pub dendrite_count: u32,
 }
 
 #[repr(C)]
@@ -57,56 +57,28 @@ pub struct GpuSynapse {
     pub padding3: u32,
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct GpuDendriteBuffer {
-    pub num_dendrites: u32,
-    pub num_synapses: u32,
-    pub padding1: u32,
-    pub padding2: u32,
-    pub dendrites: [GpuDendrite; 16],
-    pub synapses: [GpuSynapse; 64],
-}
-
-impl Default for GpuDendriteBuffer {
-    fn default() -> Self {
-        Self {
-            num_dendrites: 0,
-            num_synapses: 0,
-            padding1: 0,
-            padding2: 0,
-            dendrites: [GpuDendrite {
-                length: 0.0,
-                diameter: 0.0,
-                synapse_start: 0,
-                synapse_count: 0,
-            }; 16],
-            synapses: [GpuSynapse {
-                nt_type: 0,
-                receptor_density: 0.0,
-                efficacy: 0.0,
-                cleft_width: 0.0,
-                open_fraction: 0.0,
-                padding1: 0,
-                padding2: 0,
-                padding3: 0,
-            }; 64],
-        }
-    }
+pub struct GpuChunk {
+    pub capacity: usize,
+    pub gpu_neuron_buffer: wgpu::Buffer,
+    pub gpu_staging_buffer: wgpu::Buffer,
+    pub bind_group: Arc<wgpu::BindGroup>,
 }
 
 pub struct WgpuNeuronPoolState {
     pub cpu_neurons: Vec<GpuNeuronData>,
-    pub cpu_dendrites: Vec<GpuDendriteBuffer>,
+    pub cpu_dendrites: Vec<GpuDendrite>,
+    pub cpu_synapses: Vec<GpuSynapse>,
     pub params: GpuParams,
-    pub gpu_neuron_buffer: Option<wgpu::Buffer>,
-    pub gpu_staging_buffer: Option<wgpu::Buffer>,
     pub gpu_params_buffer: Option<wgpu::Buffer>,
     pub gpu_dendrite_buffer: Option<wgpu::Buffer>,
-    pub bind_group: Option<Arc<wgpu::BindGroup>>,
-    pub capacity: usize,
+    pub gpu_synapse_buffer: Option<wgpu::Buffer>,
+    pub chunks: Vec<GpuChunk>,
+    pub chunk_capacity: usize,
+    pub dendrite_capacity: usize,
+    pub synapse_capacity: usize,
     pub dirty_size: bool,
-    pub dirty_data: bool, // Set true if we added neurons/dendrites and need to re-upload.
+    pub dirty_data: bool,
+    pub dirty_dendrites: bool,
 }
 
 pub struct WgpuNeuronPool {
@@ -139,9 +111,10 @@ impl WgpuNeuronPool {
             state: RwLock::new(WgpuNeuronPoolState {
                 cpu_neurons: Vec::new(),
                 cpu_dendrites: Vec::new(),
+                cpu_synapses: Vec::new(),
                 params: GpuParams {
                     dt_ms: 0.025,
-                    surface_area: 5000.0, // default approximation until overridden
+                    surface_area: 5000.0,
                     capacitance: 1.0,
                     present_glutamate: 0,
                     present_gaba: 0,
@@ -149,14 +122,16 @@ impl WgpuNeuronPool {
                     padding2: 0,
                     padding3: 0,
                 },
-                gpu_neuron_buffer: None,
-                gpu_staging_buffer: None,
                 gpu_params_buffer: None,
                 gpu_dendrite_buffer: None,
-                bind_group: None,
-                capacity: 0,
+                gpu_synapse_buffer: None,
+                chunks: Vec::new(),
+                chunk_capacity: 0,
+                dendrite_capacity: 0,
+                synapse_capacity: 0,
                 dirty_size: false,
                 dirty_data: false,
+                dirty_dendrites: false,
             }),
         }
     }
@@ -195,10 +170,9 @@ impl NeuronBackend for WgpuBackend {
             n: 0.32,
             total_dendritic_current: 0.0,
             is_spiking: 0,
-            padding1: 0,
-            padding2: 0,
+            dendrite_start: 0,
+            dendrite_count: 0,
         });
-        state.cpu_dendrites.push(GpuDendriteBuffer::default());
 
         state.dirty_size = true;
         state.dirty_data = true;
@@ -237,108 +211,205 @@ impl NeuronBackend for WgpuBackend {
 
         let mut pool_state = pool.state.write().unwrap();
 
-        // Ensure buffers exist and are large enough
         let count = pool_state.cpu_neurons.len();
         if count == 0 {
             return vec![false; states.len()];
         }
 
-        if pool_state.dirty_size || pool_state.capacity < count {
-            let new_capacity = count.next_power_of_two().max(256);
+        if pool_state.chunk_capacity == 0 {
+            let max_bytes = device.device.limits().max_storage_buffer_binding_size;
+            let neuron_size = size_of::<GpuNeuronData>() as u64;
+            let max_elems = max_bytes / neuron_size;
+            let capacity = (max_elems as usize * 9 / 10).min(2_000_000);
+            pool_state.chunk_capacity = capacity.max(256);
+        }
 
-            pool_state.gpu_neuron_buffer =
-                Some(device.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("Global Neuron Buffer"),
-                    size: (new_capacity * size_of::<GpuNeuronData>()) as u64,
-                    usage: wgpu::BufferUsages::STORAGE
-                        | wgpu::BufferUsages::COPY_SRC
-                        | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                }));
+        let chunk_capacity = pool_state.chunk_capacity;
+        let required_chunks = count.div_ceil(chunk_capacity);
 
-            pool_state.gpu_staging_buffer =
-                Some(device.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("Global Staging Buffer"),
-                    size: (new_capacity * size_of::<GpuNeuronData>()) as u64,
-                    usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                }));
+        // Ensure global dendrite and synapse buffers exist and are large enough
+        let num_dendrites = pool_state.cpu_dendrites.len().max(1);
+        let num_synapses = pool_state.cpu_synapses.len().max(1);
+
+        let mut rebuild_bind_groups = false;
+
+        if pool_state.gpu_dendrite_buffer.is_none()
+            || pool_state.dendrite_capacity < num_dendrites
+            || pool_state.gpu_synapse_buffer.is_none()
+            || pool_state.synapse_capacity < num_synapses
+        {
+            let new_d_cap = num_dendrites.next_power_of_two().max(256);
+            let new_s_cap = num_synapses.next_power_of_two().max(256);
 
             pool_state.gpu_dendrite_buffer =
                 Some(device.device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("Global Dendrite Buffer"),
-                    size: (new_capacity * size_of::<GpuDendriteBuffer>()) as u64,
+                    size: (new_d_cap * size_of::<GpuDendrite>()) as u64,
                     usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                     mapped_at_creation: false,
                 }));
 
-            pool_state.gpu_params_buffer =
+            pool_state.gpu_synapse_buffer =
                 Some(device.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("Global Params Buffer"),
-                    size: size_of::<GpuParams>() as u64,
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    label: Some("Global Synapse Buffer"),
+                    size: (new_s_cap * size_of::<GpuSynapse>()) as u64,
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                     mapped_at_creation: false,
                 }));
 
-            let bind_group = device.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Global Neuron Bind Group"),
-                layout: &pool.bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: pool_state
-                            .gpu_neuron_buffer
-                            .as_ref()
-                            .unwrap()
-                            .as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: pool_state
-                            .gpu_params_buffer
-                            .as_ref()
-                            .unwrap()
-                            .as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: pool_state
-                            .gpu_dendrite_buffer
-                            .as_ref()
-                            .unwrap()
-                            .as_entire_binding(),
-                    },
-                ],
-            });
+            pool_state.dendrite_capacity = new_d_cap;
+            pool_state.synapse_capacity = new_s_cap;
+            pool_state.dirty_dendrites = true;
+            rebuild_bind_groups = true;
+        }
 
-            pool_state.bind_group = Some(Arc::new(bind_group));
-            pool_state.capacity = new_capacity;
+        if pool_state.dirty_size || pool_state.chunks.len() < required_chunks {
+            if pool_state.gpu_params_buffer.is_none() {
+                pool_state.gpu_params_buffer =
+                    Some(device.device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("Global Params Buffer"),
+                        size: size_of::<GpuParams>() as u64,
+                        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    }));
+            }
+
+            while pool_state.chunks.len() < required_chunks {
+                let capacity = chunk_capacity;
+                let gpu_neuron_buffer = device.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("Chunk Neuron Buffer"),
+                    size: (capacity * size_of::<GpuNeuronData>()) as u64,
+                    usage: wgpu::BufferUsages::STORAGE
+                        | wgpu::BufferUsages::COPY_SRC
+                        | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+
+                let gpu_staging_buffer = device.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("Chunk Staging Buffer"),
+                    size: (capacity * size_of::<GpuNeuronData>()) as u64,
+                    usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+
+                // Create dummy bind group, will be updated below
+                let bind_group = device.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("Chunk Bind Group"),
+                    layout: &pool.bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: gpu_neuron_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: pool_state
+                                .gpu_params_buffer
+                                .as_ref()
+                                .unwrap()
+                                .as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: pool_state
+                                .gpu_dendrite_buffer
+                                .as_ref()
+                                .unwrap()
+                                .as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: pool_state
+                                .gpu_synapse_buffer
+                                .as_ref()
+                                .unwrap()
+                                .as_entire_binding(),
+                        },
+                    ],
+                });
+
+                pool_state.chunks.push(GpuChunk {
+                    capacity,
+                    gpu_neuron_buffer,
+                    gpu_staging_buffer,
+                    bind_group: Arc::new(bind_group),
+                });
+            }
+
             pool_state.dirty_size = false;
             pool_state.dirty_data = true; // force data upload
         }
 
-        // Upload dirty initial state
+        if rebuild_bind_groups {
+            let WgpuNeuronPoolState {
+                chunks,
+                gpu_params_buffer,
+                gpu_dendrite_buffer,
+                gpu_synapse_buffer,
+                ..
+            } = &mut *pool_state;
+
+            let params_binding = gpu_params_buffer.as_ref().unwrap().as_entire_binding();
+            let dendrite_binding = gpu_dendrite_buffer.as_ref().unwrap().as_entire_binding();
+            let synapse_binding = gpu_synapse_buffer.as_ref().unwrap().as_entire_binding();
+
+            for chunk in chunks {
+                chunk.bind_group =
+                    Arc::new(device.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("Chunk Bind Group"),
+                        layout: &pool.bind_group_layout,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: chunk.gpu_neuron_buffer.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry { binding: 1, resource: params_binding.clone() },
+                            wgpu::BindGroupEntry { binding: 2, resource: dendrite_binding.clone() },
+                            wgpu::BindGroupEntry { binding: 3, resource: synapse_binding.clone() },
+                        ],
+                    }));
+            }
+        }
+
+        if pool_state.dirty_dendrites {
+            if !pool_state.cpu_dendrites.is_empty() {
+                device.queue.write_buffer(
+                    pool_state.gpu_dendrite_buffer.as_ref().unwrap(),
+                    0,
+                    bytemuck::cast_slice(&pool_state.cpu_dendrites),
+                );
+            }
+            if !pool_state.cpu_synapses.is_empty() {
+                device.queue.write_buffer(
+                    pool_state.gpu_synapse_buffer.as_ref().unwrap(),
+                    0,
+                    bytemuck::cast_slice(&pool_state.cpu_synapses),
+                );
+            }
+            pool_state.dirty_dendrites = false;
+        }
+
         if pool_state.dirty_data {
-            device.queue.write_buffer(
-                pool_state.gpu_neuron_buffer.as_ref().unwrap(),
-                0,
-                bytemuck::cast_slice(&pool_state.cpu_neurons),
-            );
-            device.queue.write_buffer(
-                pool_state.gpu_dendrite_buffer.as_ref().unwrap(),
-                0,
-                bytemuck::cast_slice(&pool_state.cpu_dendrites),
-            );
+            for (i, chunk) in pool_state.chunks.iter().enumerate() {
+                let start = i * chunk_capacity;
+                let end = ((i + 1) * chunk_capacity).min(count);
+                if start >= end {
+                    break;
+                }
+
+                device.queue.write_buffer(
+                    &chunk.gpu_neuron_buffer,
+                    0,
+                    bytemuck::cast_slice(&pool_state.cpu_neurons[start..end]),
+                );
+            }
             pool_state.dirty_data = false;
         }
 
-        // Update params
         pool_state.params.dt_ms = dt_ms as f32;
         pool_state.params.present_glutamate = present_glutamate;
         pool_state.params.present_gaba = present_gaba;
 
-        // We use the first neuron's surface area as approximation for the whole batch for simplicity
-        // in this implementation, to avoid variable-sized param buffers per neuron.
         pool_state.params.surface_area =
             states.first().map(|s| s.soma_surface_area).unwrap_or(5000.0);
 
@@ -348,7 +419,6 @@ impl NeuronBackend for WgpuBackend {
             bytemuck::bytes_of(&pool_state.params),
         );
 
-        // Submit the monolithic compute pass
         let mut encoder =
             device.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
@@ -357,47 +427,86 @@ impl NeuronBackend for WgpuBackend {
                 timestamp_writes: None,
             });
             cpass.set_pipeline(&pool.pipeline);
-            cpass.set_bind_group(0, pool_state.bind_group.as_deref().unwrap(), &[]);
-            // Dispatch 1 thread per neuron.
-            let _workgroups = (count as u32).div_ceil(256);
-            // Note: wgsl workgroup_size is 1, but we can change wgsl to use 64 or 256 for better speed.
-            // Since wgsl uses @workgroup_size(1), workgroups = count.
-            cpass.dispatch_workgroups(count as u32, 1, 1);
+
+            for (i, chunk) in pool_state.chunks.iter().enumerate() {
+                let start = i * chunk_capacity;
+                let end = ((i + 1) * chunk_capacity).min(count);
+                if start >= end {
+                    break;
+                }
+
+                let chunk_count = (end - start) as u32;
+                let workgroups = chunk_count.div_ceil(256);
+                cpass.set_bind_group(0, chunk.bind_group.as_ref(), &[]);
+                cpass.dispatch_workgroups(workgroups, 1, 1);
+            }
         }
 
-        encoder.copy_buffer_to_buffer(
-            pool_state.gpu_neuron_buffer.as_ref().unwrap(),
-            0,
-            pool_state.gpu_staging_buffer.as_ref().unwrap(),
-            0,
-            (count * size_of::<GpuNeuronData>()) as u64,
-        );
+        for (i, chunk) in pool_state.chunks.iter().enumerate() {
+            let start = i * chunk_capacity;
+            let end = ((i + 1) * chunk_capacity).min(count);
+            if start >= end {
+                break;
+            }
+
+            let chunk_count = (end - start) as u64;
+            encoder.copy_buffer_to_buffer(
+                &chunk.gpu_neuron_buffer,
+                0,
+                &chunk.gpu_staging_buffer,
+                0,
+                chunk_count * size_of::<GpuNeuronData>() as u64,
+            );
+        }
 
         device.queue.submit(Some(encoder.finish()));
 
-        // Map and Read
-        let buffer_slice = pool_state
-            .gpu_staging_buffer
-            .as_ref()
-            .unwrap()
-            .slice(..(count * size_of::<GpuNeuronData>()) as u64);
-        let (sender, receiver) = std::sync::mpsc::channel();
-        buffer_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
+        let mut receivers = Vec::new();
+        for (i, chunk) in pool_state.chunks.iter().enumerate() {
+            let start = i * chunk_capacity;
+            let end = ((i + 1) * chunk_capacity).min(count);
+            if start >= end {
+                break;
+            }
+
+            let chunk_count = (end - start) as u64;
+            let buffer_slice =
+                chunk.gpu_staging_buffer.slice(..chunk_count * size_of::<GpuNeuronData>() as u64);
+            let (sender, receiver) = std::sync::mpsc::channel();
+            buffer_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
+            receivers.push(receiver);
+        }
 
         device.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-        receiver.recv().unwrap().unwrap();
+        for r in receivers {
+            r.recv().unwrap().unwrap();
+        }
 
-        let data = buffer_slice.get_mapped_range();
-        let result: &[GpuNeuronData] = bytemuck::cast_slice(&data);
+        {
+            let WgpuNeuronPoolState { chunks, cpu_neurons, .. } = &mut *pool_state;
+            for (i, chunk) in chunks.iter().enumerate() {
+                let start = i * chunk_capacity;
+                let end = ((i + 1) * chunk_capacity).min(count);
+                if start >= end {
+                    break;
+                }
 
-        // Extract spike data back to the relevant neuron handles.
+                let chunk_count = (end - start) as u64;
+                let buffer_slice = chunk
+                    .gpu_staging_buffer
+                    .slice(..chunk_count * size_of::<GpuNeuronData>() as u64);
+                {
+                    let data = buffer_slice.get_mapped_range();
+                    let result: &[GpuNeuronData] = bytemuck::cast_slice(&data);
+                    cpu_neurons[start..end].copy_from_slice(result);
+                }
+                chunk.gpu_staging_buffer.unmap();
+            }
+        }
+
         let mut results = vec![false; states.len()];
-
-        // Also update cpu_neurons cache with latest state from GPU so if buffer reallocates, we don't lose state.
-        pool_state.cpu_neurons[..count].copy_from_slice(result);
-
         for (i, state) in states.iter_mut().enumerate() {
-            let is_spiking = result[state.index].is_spiking != 0;
+            let is_spiking = pool_state.cpu_neurons[state.index].is_spiking != 0;
             if is_spiking {
                 state.axon.queue_spike();
             }
@@ -405,55 +514,51 @@ impl NeuronBackend for WgpuBackend {
             results[i] = is_spiking;
         }
 
-        drop(data);
-        pool_state.gpu_staging_buffer.as_ref().unwrap().unmap();
-
         results
     }
 
     fn add_dendrite(state: &mut Self::State, branch: Dendrite) {
         state.dendrites.push(branch);
 
-        let mut buffer_data = GpuDendriteBuffer::default();
-        let mut syn_idx = 0;
-
-        buffer_data.num_dendrites = state.dendrites.len().min(16) as u32;
-
-        for (i, d) in state.dendrites.iter().take(16).enumerate() {
-            let count = d.synapses.len() as u32;
-            buffer_data.dendrites[i] = GpuDendrite {
-                length: d.length as f32,
-                diameter: d.diameter as f32,
-                synapse_start: syn_idx,
-                synapse_count: count,
-            };
-
-            for syn in &d.synapses {
-                if syn_idx < 64 {
-                    let nt_type = match syn.neurotransmitter {
-                        Neurotransmitter::Glutamate => 0,
-                        Neurotransmitter::Gaba => 1,
-                        _ => 2,
-                    };
-                    buffer_data.synapses[syn_idx as usize] = GpuSynapse {
-                        nt_type,
-                        receptor_density: syn.receptor_density as f32,
-                        efficacy: syn.efficacy as f32,
-                        cleft_width: syn.cleft_width as f32,
-                        open_fraction: syn.open_fraction as f32,
-                        padding1: 0,
-                        padding2: 0,
-                        padding3: 0,
-                    };
-                    syn_idx += 1;
-                }
-            }
-        }
-        buffer_data.num_synapses = syn_idx;
-
         let pool = state.device.get_or_init_extension(|| WgpuNeuronPool::new(&state.device.device));
         let mut pool_state = pool.state.write().unwrap();
-        pool_state.cpu_dendrites[state.index] = buffer_data;
-        pool_state.dirty_data = true; // flag upload for next tick
+
+        let dendrite_start = pool_state.cpu_dendrites.len() as u32;
+        let mut synapse_start = pool_state.cpu_synapses.len() as u32;
+
+        for d in &state.dendrites {
+            let syn_count = d.synapses.len() as u32;
+            pool_state.cpu_dendrites.push(GpuDendrite {
+                length: d.length as f32,
+                diameter: d.diameter as f32,
+                synapse_start,
+                synapse_count: syn_count,
+            });
+
+            for syn in &d.synapses {
+                let nt_type = match syn.neurotransmitter {
+                    Neurotransmitter::Glutamate => 0,
+                    Neurotransmitter::Gaba => 1,
+                    _ => 2,
+                };
+                pool_state.cpu_synapses.push(GpuSynapse {
+                    nt_type,
+                    receptor_density: syn.receptor_density as f32,
+                    efficacy: syn.efficacy as f32,
+                    cleft_width: syn.cleft_width as f32,
+                    open_fraction: syn.open_fraction as f32,
+                    padding1: 0,
+                    padding2: 0,
+                    padding3: 0,
+                });
+                synapse_start += 1;
+            }
+        }
+
+        pool_state.cpu_neurons[state.index].dendrite_start = dendrite_start;
+        pool_state.cpu_neurons[state.index].dendrite_count = state.dendrites.len() as u32;
+
+        pool_state.dirty_dendrites = true;
+        pool_state.dirty_data = true; // neuron data changed
     }
 }

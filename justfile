@@ -23,7 +23,7 @@ example mode="debug" example="basic_simulation" *args:
 
 # Build and run tests
 test:
-    cargo test
+    cargo test --all-features
 
 # Remove compiled artifacts
 clean:

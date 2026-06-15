@@ -5,8 +5,8 @@ struct NeuronData {
     n: f32,
     total_dendritic_current: f32,
     is_spiking: u32,
-    padding1: u32,
-    padding2: u32,
+    dendrite_start: u32,
+    dendrite_count: u32,
 };
 
 struct Params {
@@ -38,20 +38,12 @@ struct Synapse {
     padding3: u32,
 };
 
-struct DendriteBuffer {
-    num_dendrites: u32,
-    num_synapses: u32,
-    padding1: u32,
-    padding2: u32,
-    dendrites: array<Dendrite, 16>,
-    synapses: array<Synapse, 64>,
-};
-
 @group(0) @binding(0) var<storage, read_write> neurons: array<NeuronData>;
 @group(0) @binding(1) var<uniform> params: Params;
-@group(0) @binding(2) var<storage, read_write> dendrite_buffer: DendriteBuffer;
+@group(0) @binding(2) var<storage, read> dendrites: array<Dendrite>;
+@group(0) @binding(3) var<storage, read_write> synapses: array<Synapse>;
 
-@compute @workgroup_size(1)
+@compute @workgroup_size(256)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let index = global_id.x;
     if (index >= arrayLength(&neurons)) {
@@ -65,8 +57,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // Process Synapses and Dendrites
     var total_dendritic_current: f32 = 0.0;
     
-    for (var d: u32 = 0u; d < dendrite_buffer.num_dendrites; d = d + 1u) {
-        let dendrite = dendrite_buffer.dendrites[d];
+    for (var d: u32 = 0u; d < data.dendrite_count; d = d + 1u) {
+        let dendrite_idx = data.dendrite_start + d;
+        let dendrite = dendrites[dendrite_idx];
         let d_cm = dendrite.diameter * 1e-4;
         let r_membrane = 10000.0;
         let axial_resistance = 150.0;
@@ -79,7 +72,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         
         for (var s: u32 = 0u; s < dendrite.synapse_count; s = s + 1u) {
             let syn_idx = dendrite.synapse_start + s;
-            var syn = dendrite_buffer.synapses[syn_idx];
+            var syn = synapses[syn_idx];
             
             var concentration: f32 = 0.0;
             if (syn.nt_type == 0u && params.present_glutamate == 1u) {
@@ -102,7 +95,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             let syn_current = g_max * syn.open_fraction * (v - v_reverse);
             
             branch_current = branch_current + syn_current;
-            dendrite_buffer.synapses[syn_idx] = syn; // Update state
+            synapses[syn_idx] = syn; // Update state
         }
         
         total_dendritic_current = total_dendritic_current + (branch_current * attenuation);

@@ -36,9 +36,12 @@ impl Default for WgpuDevice {
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
                 .expect("Failed to find an appropriate adapter");
+
+        let desc =
+            wgpu::DeviceDescriptor { required_limits: adapter.limits(), ..Default::default() };
+
         let (device, queue) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
-                .expect("Failed to create device");
+            pollster::block_on(adapter.request_device(&desc)).expect("Failed to create device");
 
         Self {
             device: Arc::new(device),

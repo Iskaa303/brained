@@ -1,19 +1,18 @@
-//! WGPU simulation example for the brained library.
-//! Simulates many neurons concurrently using the GPU.
+//! CPU simulation example for the brained library.
+//! Simulates many neurons concurrently using the CPU to compare performance.
 use brained::prelude::*;
 
-async fn run() {
-    // 1. Initialize WGPU device and queue lazily via Default
-    let wgpu_device = WgpuDevice::default();
+fn main() {
+    let device = CpuDevice;
 
     let dt = 0.025;
     let num_neurons = 10_000_000;
 
-    println!("Initializing {} neurons on the GPU...", num_neurons);
+    println!("Initializing {} neurons on the CPU...", num_neurons);
 
-    // 2. Instantiate the cells
-    let mut brain_cells: Vec<Neuron<WgpuBackend>> = (0..num_neurons)
-        .map(|id| Neuron::<WgpuBackend>::new(&wgpu_device, id as u64, 2000.0, 5000.0, 1.0, true))
+    // Instantiate the cells
+    let mut brain_cells: Vec<Neuron<CpuBackend>> = (0..num_neurons)
+        .map(|id| Neuron::<CpuBackend>::new(&device, id as u64, 2000.0, 5000.0, 1.0, true))
         .collect();
 
     let active_signals = [Neurotransmitter::Glutamate];
@@ -40,8 +39,4 @@ async fn run() {
     let elapsed = start_time.elapsed();
     println!("Simulation complete in {:.2?}!", elapsed);
     println!("Average time per tick: {:.2?}", elapsed / 50);
-}
-
-fn main() {
-    pollster::block_on(run());
 }
